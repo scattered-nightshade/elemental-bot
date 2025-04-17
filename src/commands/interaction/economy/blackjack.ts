@@ -75,7 +75,7 @@ export class BlackjackCommand extends InteractionCommand {
                 { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
             );
 
-        const row = this.getActionRow(playerHands, bets[activeHandIndex], userProfile.coins, playerHands.length > 1);
+        const row = this.getActionRow(playerHands, activeHandIndex, bets[activeHandIndex], userProfile.coins, playerHands.length > 1);
 
         if (this.calculateHand(playerHands[0]) === 21 && this.calculateHand(dealerHand) !== 21) {
             gameActive = false;
@@ -133,7 +133,12 @@ export class BlackjackCommand extends InteractionCommand {
 
                 bets[activeHandIndex] *= 2;
 
-                gameActive = false;
+                if (activeHandIndex < playerHands.length - 1) {
+                    activeHandIndex++;
+                } 
+                else {
+                    gameActive = false;
+                }
             }
 
             if (buttonInteraction.customId === 'stand' || this.calculateHand(playerHands[activeHandIndex]) > 21) {
@@ -152,12 +157,11 @@ export class BlackjackCommand extends InteractionCommand {
                     await buttonInteraction.reply({ content: 'You cannot split this hand!', flags: MessageFlags.Ephemeral })
                 }
             
-                playerHands = [
-                    [currentHand[0], this.drawCard(deck)],
-                    [currentHand[1], this.drawCard(deck)]
-                ];
-            
-                activeHandIndex = 0;
+                const card1 = currentHand[0];
+                const card2 = currentHand[1];
+                
+                playerHands[activeHandIndex] = [card1, this.drawCard(deck)];
+                playerHands.push([card2, this.drawCard(deck)]);
 
                 bets.push(bets[activeHandIndex]);
             }
@@ -202,7 +206,7 @@ export class BlackjackCommand extends InteractionCommand {
                     { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
                     { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
                 )
-                .setFooter({ text: `Bet: ${bets} coins ${playerHands.length > 1 ? `| Hand ${activeHandIndex + 1}/${playerHands.length}` : '' } ` });
+                .setFooter({ text: `Bet${playerHands.length > 1 ? 's' : ''}: ${bets.join(', ')} coins ${playerHands.length > 1 ? `| Hand ${activeHandIndex + 1}/${playerHands.length}` : '' } ` });
 
 
             if (!gameActive) {
@@ -256,7 +260,7 @@ export class BlackjackCommand extends InteractionCommand {
                 return;
             }
             else {
-                await buttonInteraction.update({ embeds: [updatedEmbed], components: [this.getActionRow(playerHands, bets[activeHandIndex], userProfile.coins, playerHands.length > 1)] });
+                await buttonInteraction.update({ embeds: [updatedEmbed], components: [this.getActionRow(playerHands, activeHandIndex, bets[activeHandIndex], userProfile.coins, playerHands.length > 1)] });
             }
         });
 
@@ -277,7 +281,8 @@ export class BlackjackCommand extends InteractionCommand {
 
     private createDeck(): string[] {
         const suits = ['♠', '♥', '♦', '♣'];
-        const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        //const values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+        const values = ['4', '4', '4', 'A', 'A', 'A'];
 
         const loops = 6;
 
@@ -327,7 +332,7 @@ export class BlackjackCommand extends InteractionCommand {
         return hand.join(', ');
     }
 
-    private getActionRow(playerHands: string[][], bet: number, coins: number, split: boolean): ActionRowBuilder<ButtonBuilder> {
+    private getActionRow(playerHands: string[][], playerHandIndex: number, bet: number, coins: number, split: boolean): ActionRowBuilder<ButtonBuilder> {
         const row = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder()
@@ -341,30 +346,27 @@ export class BlackjackCommand extends InteractionCommand {
                     
             );
 
-        if (playerHands.length === 2) {
-            const cards = playerHands.map(card => card.slice(0, -1));
+        if (playerHands[playerHandIndex].length === 2) {
+            
+            const cards = playerHands[playerHandIndex].map(card => card.slice(0, -1));
 
             row.addComponents(
                 new ButtonBuilder()
                     .setCustomId('doubledown')
                     .setLabel('Double Down')
                     .setDisabled(coins < bet * 2)
-                    .setStyle(ButtonStyle.Primary)
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('split')
+                    .setLabel('Split')
+                    .setDisabled(cards[0] !== cards[1] || coins < bet * (playerHands.length + 1))
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId('surrender')
+                    .setLabel('Surrender')
+                    .setDisabled(playerHands.length > 1)
+                    .setStyle(ButtonStyle.Danger),
             );
-
-            if (!split) {
-                row.addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('split')
-                        .setLabel('Split')
-                        .setDisabled(cards[0] !== cards[1] || coins < bet * (playerHands.length + 1))
-                        .setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder()
-                        .setCustomId('surrender')
-                        .setLabel('Surrender')
-                        .setStyle(ButtonStyle.Danger),
-                );
-            }
         }
 
         return row;
