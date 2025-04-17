@@ -1,9 +1,12 @@
-import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, APIInteractionDataResolvedGuildMember, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags } from 'discord.js';
+import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, MessageFlags, Guild, User } from 'discord.js';
 import { InteractionCommand } from '../../../classes/command';
 import Profile from '../../../schemas/profileModel';
 import { randomHexColour } from '../../../modules/random';
 
 export class BlackjackCommand extends InteractionCommand {
+
+    private activeUsers: Set<string> = new Set();
+
     constructor() {
         super();
         this.name = 'blackjack';
@@ -16,9 +19,10 @@ export class BlackjackCommand extends InteractionCommand {
     }
 
     async execute(interaction: ChatInputCommandInteraction<CacheType>) {
-        const user = interaction.user;
-        const guild = interaction.guild;
-        let bet = interaction.options.getInteger('bet', true);
+        const user: User | null = interaction.user;
+        const guild: Guild | null = interaction.guild;
+        const initalBet: number = interaction.options.getInteger('bet', true);
+        let bets: number[] = [initalBet];
 
         if (!user) {
             console.error(`Failed to find user in ${this.name}`);
@@ -30,16 +34,33 @@ export class BlackjackCommand extends InteractionCommand {
             return;
         }
 
-        const userProfile = await Profile.getProfileById(user.id, guild.id);
+        if (bets[0] <= 0) {
+            interaction.reply({ content: 'Bet must be greater than 0!', flags: MessageFlags.Ephemeral });
+            return;
+        }
 
+        const userProfile = await Profile.getProfileById(user.id, guild.id);
+        
+        if (bets[0] > userProfile.coins) {
+            interaction.reply({ content: `You don't have enough coins! You have ${userProfile.coins} coins.`, flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (this.activeUsers.has(user.id)) {
+            interaction.reply({ content: 'You already have an active game!', flags: MessageFlags.Ephemeral });
+            return;
+        }
+    
+        this.activeUsers.add(user.id);
 
         let gameActive = true;
         let deck = this.createDeck();
-        let playerHand: string[] = [];
+        let playerHands: string[][] = [[]];
+        let activeHandIndex = 0;
         let dealerHand: string[] = [];
 
-        playerHand.push(this.drawCard(deck));
-        playerHand.push(this.drawCard(deck));
+        playerHands[0].push(this.drawCard(deck));
+        playerHands[0].push(this.drawCard(deck));
         dealerHand.push(this.drawCard(deck));
         dealerHand.push(this.drawCard(deck));
 
@@ -48,14 +69,34 @@ export class BlackjackCommand extends InteractionCommand {
             .setColor(randomHexColour())
             .addFields(
                 { name: 'Dealer\'s hand', value: `${dealerHand[0]}, ??`, inline: true },
-                { name: 'Dealer\'s Total', value: `${this.calculateHand(dealerHand)}`, inline: true },
+                { name: 'Dealer\'s Total', value: `${parseInt(dealerHand[0].slice(0, -1))} + ??`, inline: true },
                 { name: '\u200b', value: '\u200b' },
-                { name: 'Your Hand', value: this.formatHand(playerHand), inline: true },
-                { name: 'Your Total', value: `${this.calculateHand(playerHand)}`, inline: true },
+                { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
+                { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
             );
 
-        const row = this.getActionRow(playerHand, bet, userProfile.coins);
+        const row = this.getActionRow(playerHands, bets[activeHandIndex], userProfile.coins, playerHands.length > 1);
 
+        if (this.calculateHand(playerHands[0]) === 21 && this.calculateHand(dealerHand) !== 21) {
+            gameActive = false;
+
+            const finalEmbed = new EmbedBuilder()
+                .setTitle('Blackjack Game')
+                .setDescription(`You got a blackjack! You won ${bets[activeHandIndex] * 3} coins.`)
+                .setFields(
+                    { name: 'Dealer\'s hand', value: this.formatHand(dealerHand), inline: true },
+                    { name: 'Dealer\'s Total', value: `${this.calculateHand(dealerHand)}`, inline: true },
+                    { name: '\u200b', value: '\u200b' },
+                    { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
+                    { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
+                )
+                .setColor('#00FF00');
+            
+            userProfile.coins += bets[activeHandIndex] * 2;
+            await userProfile.save();
+
+            return;
+        }
 
         const response = await interaction.reply({ embeds: [embed], components: [row], withResponse: true });
 
@@ -84,52 +125,68 @@ export class BlackjackCommand extends InteractionCommand {
             collector.resetTimer();
 
             if (buttonInteraction.customId === 'hit') {
-                playerHand.push(this.drawCard(deck));
-                    
-                if (this.calculateHand(playerHand) > 21) {
-                    gameActive = false;
-                }
-            }
-
-            if (buttonInteraction.customId === 'stand') {
-                gameActive = false;
-            }
-
-            if (buttonInteraction.customId === 'split') {
-                // Split
+                playerHands[activeHandIndex].push(this.drawCard(deck));
             }
 
             if (buttonInteraction.customId === 'doubledown') {
-                playerHand.push(this.drawCard(deck));
+                playerHands[activeHandIndex].push(this.drawCard(deck));
 
-                bet *= 2;
+                bets[activeHandIndex] *= 2;
 
                 gameActive = false;
+            }
+
+            if (buttonInteraction.customId === 'stand' || this.calculateHand(playerHands[activeHandIndex]) > 21) {
+                if (activeHandIndex < playerHands.length - 1) {
+                    activeHandIndex++;
+                } 
+                else {
+                    gameActive = false;
+                }
+            }
+            
+            if (buttonInteraction.customId === 'split') {
+            
+                const currentHand = playerHands[activeHandIndex];
+                if (currentHand.length !== 2 || currentHand[0].slice(0, -1) !== currentHand[1].slice(0, -1)) {
+                    await buttonInteraction.reply({ content: 'You cannot split this hand!', flags: MessageFlags.Ephemeral })
+                }
+            
+                playerHands = [
+                    [currentHand[0], this.drawCard(deck)],
+                    [currentHand[1], this.drawCard(deck)]
+                ];
+            
+                activeHandIndex = 0;
+
+                bets.push(bets[activeHandIndex]);
             }
 
             if (buttonInteraction.customId === 'surrender') {
                 gameActive = false;
-                bet = Math.floor(bet / 2);
-                userProfile.coins -= bet;
+                bets[activeHandIndex] = Math.floor(bets[activeHandIndex] / 2);
+                userProfile.coins -= bets[activeHandIndex];
 
                 await userProfile.save();
 
-                const playerTotal = this.calculateHand(playerHand);
+                const playerTotal = this.calculateHand(playerHands[activeHandIndex]);
                 const dealerTotal = this.calculateHand(dealerHand);
 
                 const surrenderEmbed = new EmbedBuilder()
                     .setTitle('Blackjack Game')
                     .setColor('#FF0000')
-                    .setDescription(`You surrendered! You lost half of your bet: ${bet} coins.`)
+                    .setDescription(`You surrendered! You lost half of your bet: ${bets} coins.`)
                     .setFields(
                         { name: 'Dealer\'s hand', value: this.formatHand(dealerHand), inline: true },
                         { name: 'Dealer\'s Total', value: `${dealerTotal}`, inline: true },
                         { name: '\u200b', value: '\u200b' },
-                        { name: 'Your Hand', value: this.formatHand(playerHand), inline: true },
+                        { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
                         { name: 'Your Total', value: `${playerTotal}`, inline: true },
                     );
 
                 await buttonInteraction.update({ embeds: [surrenderEmbed], components: [] });
+
+                this.activeUsers.delete(user.id);
 
                 collector.stop();
                 return;
@@ -140,74 +197,80 @@ export class BlackjackCommand extends InteractionCommand {
                 .setColor(randomHexColour())
                 .addFields(
                     { name: 'Dealer\'s hand', value: `${dealerHand[0]}, ??`, inline: true },
-                    { name: 'Dealer\'s Total', value: `${this.calculateHand(dealerHand)}`, inline: true },
+                    { name: 'Dealer\'s Total', value: `${this.calculateHand([dealerHand[0]])} + ??`, inline: true },
                     { name: '\u200b', value: '\u200b' },
-                    { name: 'Your Hand', value: this.formatHand(playerHand), inline: true },
-                    { name: 'Your Total', value: `${this.calculateHand(playerHand)}`, inline: true },
-                );
+                    { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
+                    { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
+                )
+                .setFooter({ text: `Bet: ${bets} coins ${playerHands.length > 1 ? `| Hand ${activeHandIndex + 1}/${playerHands.length}` : '' } ` });
 
 
             if (!gameActive) {
-                while (this.calculateHand(dealerHand) < 17) {
+                while (this.calculateHand(dealerHand) < 17 && (this.calculateHand(dealerHand) < this.calculateHand(playerHands[0]) || playerHands.length > 1)) {
                     dealerHand.push(this.drawCard(deck));
                 }
-                const playerTotal = this.calculateHand(playerHand);
                 const dealerTotal = this.calculateHand(dealerHand);
-
+            
+                let results: string[] = [];
+                let totalWin = 0;
+            
+                for (let i = 0; i < playerHands.length; i++) {
+                    const playerTotal = this.calculateHand(playerHands[i]);
+                    let result = `Hand ${i + 1}: `;
+                    if (playerTotal > 21) {
+                        result += `Busted! Lost ${bets[i]} coins.`;
+                        userProfile.coins -= bets[i];
+                    } else if (dealerTotal > 21) {
+                        result += `Dealer busted! Won ${bets[i]} coins.`;
+                        userProfile.coins += bets[i];
+                        totalWin += bets[i];
+                    } else if (playerTotal > dealerTotal) {
+                        result += `Won ${bets[i]} coins.`;
+                        userProfile.coins += bets[i];
+                        totalWin += bets[i];
+                    } else if (playerTotal < dealerTotal) {
+                        result += `Lost ${bets[i]} coins.`;
+                        userProfile.coins -= bets[i];
+                    } else {
+                        result += `Push. Bet returned.`;
+                    }
+                    results.push(result);
+                }
+            
                 const finalEmbed = new EmbedBuilder()
                     .setTitle('Blackjack Game')
                     .setFields(
                         { name: 'Dealer\'s hand', value: this.formatHand(dealerHand), inline: true },
                         { name: 'Dealer\'s Total', value: `${dealerTotal}`, inline: true },
                         { name: '\u200b', value: '\u200b' },
-                        { name: 'Your Hand', value: this.formatHand(playerHand), inline: true },
-                        { name: 'Your Total', value: `${playerTotal}`, inline: true },
-                    );
-
-                if (playerTotal > 21) {
-                    finalEmbed.setDescription(`You busted! Dealer wins! You lost ${bet} coins.`);
-                    finalEmbed.setColor('#FF0000');
-                    userProfile.coins -= bet;
-                }
-                else if (dealerTotal > playerTotal && dealerTotal <= 21) {
-                    finalEmbed.setDescription(`Dealer wins! you lost ${bet} coins.`);
-                    finalEmbed.setColor('#FF0000');
-                    userProfile.coins -= bet;
-                }
-                else if (dealerTotal > 21 && playerTotal <= 21) {
-                    finalEmbed.setDescription(`Dealer busted! You win! You won ${bet} coins.`);
-                    finalEmbed.setColor('#00FF00');
-                    userProfile.coins += bet;
-                }
-                else if (playerTotal > dealerTotal) {
-                    finalEmbed.setDescription(`You win! You won ${bet} coins.`);
-                    finalEmbed.setColor('#00FF00');
-                    userProfile.coins += bet;
-                }
-                else if (playerTotal === dealerTotal) {
-                    finalEmbed.setDescription(`It\`s a tie! You get your bet back.`);
-                    finalEmbed.setColor('#FFFF00');
-                }
-                else {
-                    finalEmbed.setDescription(`Dealer wins! You lost ${bet} coins.`);
-                    finalEmbed.setColor('#FF0000');
-                    userProfile.coins -= bet;
-                }
-
+                        { name: 'Your Hands', value: playerHands.map((hand, index) => `Hand ${index + 1}: ${this.formatHand(hand)} (${this.calculateHand(hand)})`).join('\n'), inline: true },
+                    )
+                    .setDescription(results.join('\n'))
+                    .setColor(totalWin > 0 ? '#00FF00' : '#FF0000');
+            
                 await buttonInteraction.update({ embeds: [finalEmbed], components: [] });
                 await userProfile.save();
-
+            
+                this.activeUsers.delete(user.id);
                 collector.stop();
                 return;
             }
             else {
-                await buttonInteraction.update({ embeds: [updatedEmbed], components: [this.getActionRow(playerHand, bet, userProfile.coins)] });
+                await buttonInteraction.update({ embeds: [updatedEmbed], components: [this.getActionRow(playerHands, bets[activeHandIndex], userProfile.coins, playerHands.length > 1)] });
             }
         });
 
         collector.on('end', async () => {
             if (gameActive) {
-                await interaction.editReply({ content: 'The game has ended due to inactivity.', components: [] });
+                this.activeUsers.delete(user.id);
+                await interaction.editReply({ content: 'The game has ended due to inactivity, you lose all of your money and bets.', components: [] });
+                
+                bets.forEach(bet => {
+                    userProfile.coins -= bet;
+                });
+
+                await userProfile.save();
+                return;
             }
         });
     }
@@ -242,10 +305,12 @@ export class BlackjackCommand extends InteractionCommand {
             const value = card.slice(0, -1);
             if (['J', 'Q', 'K'].includes(value)) {
                 total += 10;
-            } else if (value === 'A') {
+            } 
+            else if (value === 'A') {
                 total += 11;
                 aces++;
-            } else {
+            } 
+            else {
                 total += parseInt(value);
             }
         }
@@ -262,7 +327,7 @@ export class BlackjackCommand extends InteractionCommand {
         return hand.join(', ');
     }
 
-    private getActionRow(playerHand: string[], bet: number, coins: number): ActionRowBuilder<ButtonBuilder> {
+    private getActionRow(playerHands: string[][], bet: number, coins: number, split: boolean): ActionRowBuilder<ButtonBuilder> {
         const row = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder()
@@ -276,32 +341,30 @@ export class BlackjackCommand extends InteractionCommand {
                     
             );
 
-        if (playerHand.length === 2) {
-            const cards = playerHand.map(card => card.slice(0, -1));
-            if (cards[0] === cards[1]) {
-                row.addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('split')
-                        .setLabel('Split')
-                        .setDisabled(true)
-                        .setStyle(ButtonStyle.Primary),
-                );
-            }
-
+        if (playerHands.length === 2) {
+            const cards = playerHands.map(card => card.slice(0, -1));
 
             row.addComponents(
                 new ButtonBuilder()
                     .setCustomId('doubledown')
                     .setLabel('Double Down')
                     .setDisabled(coins < bet * 2)
-                    .setStyle(ButtonStyle.Primary),
-                
-            
-                new ButtonBuilder()
-                    .setCustomId('surrender')
-                    .setLabel('Surrender')
-                    .setStyle(ButtonStyle.Danger),
+                    .setStyle(ButtonStyle.Primary)
             );
+
+            if (!split) {
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('split')
+                        .setLabel('Split')
+                        .setDisabled(cards[0] !== cards[1] || coins < bet * (playerHands.length + 1))
+                        .setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder()
+                        .setCustomId('surrender')
+                        .setLabel('Surrender')
+                        .setStyle(ButtonStyle.Danger),
+                );
+            }
         }
 
         return row;
