@@ -114,14 +114,17 @@ export class HighLowCommand extends InteractionCommand {
                 return;
             }
 
+            let probability = guessedHigher ? (range - currentNumber - 1) / range : currentNumber / range;
+
+            let multiplierIncrease = (1 - probability);
             
             const resultEmbed = new EmbedBuilder()
                 .setTitle('High or Low Game')
                 .setDescription(`The next number was **${nextNumber}**.\nIt was **${isHigher ? 'higher' : 'lower'}** than **${currentNumber}**.`)
                 .setColor(isHigher === guessedHigher ? '#00FF00' : '#FF0000')
                 .addFields(
-                    { name: 'Multiplier', value: `${multiplier.toFixed(2)}x`, inline: true },
-                    { name: 'Current Bet', value: `${Math.floor(initialBet * multiplier)} coins`, inline: true },
+                    { name: 'Multiplier', value: `${multiplier.toFixed(2)}x + ${multiplierIncrease.toFixed(2)}x`, inline: true },
+                    { name: 'Current Bet', value: `${Math.floor(initialBet * multiplier)} + ${Math.floor(initialBet * multiplierIncrease)} coins`, inline: true },
                     { name: 'Range', value: `0 - ${range}`, inline: true },
                 )
                 .setFooter({ text: isHigher === guessedHigher ? 'You guessed correctly!' : 'You guessed incorrectly!' });
@@ -134,9 +137,7 @@ export class HighLowCommand extends InteractionCommand {
             await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             
             if (isHigher === guessedHigher) {
-                let probability = guessedHigher ? (range - currentNumber - 1) / range : currentNumber / range;
 
-                let multiplierIncrease = (1 - probability);
                 multiplier += multiplierIncrease;
 
                 previousNumber = currentNumber;
