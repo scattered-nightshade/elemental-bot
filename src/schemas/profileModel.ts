@@ -28,7 +28,7 @@ const profileSchema = new Schema({
     cooldowns: {
         dailyGotten: { type: Schema.Types.Date, default: null },
         weeklyGotten: { type: Schema.Types.Date, default: null },
-        monlthyGotten: { type: Schema.Types.Date, default: null }
+        monthlyGotten: { type: Schema.Types.Date, default: null }
     },
     inventory: [
         {

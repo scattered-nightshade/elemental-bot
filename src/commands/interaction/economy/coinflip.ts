@@ -43,6 +43,10 @@ export class CoinFlipCommand extends InteractionCommand {
 
         const userProfile = await Profile.getProfileById(user.id, guild.id);
 
+        if (amount <= 0) {
+            interaction.reply({ content: 'The amount must be greater than 0', flags: MessageFlags.Ephemeral });
+        }
+
         if (userProfile.coins < amount) {
             interaction.reply({ content: 'The amount that you are gambling is higher than how much you have', flags: MessageFlags.Ephemeral });
         }

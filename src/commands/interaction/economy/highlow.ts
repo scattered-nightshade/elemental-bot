@@ -1,7 +1,7 @@
 import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ComponentType, InteractionCallbackResource, Message, MessageFlags } from 'discord.js';
 import { InteractionCommand } from '../../../classes/command';
 import Profile from '../../../schemas/profileModel';
-import { randomHexColour } from '../../../modules/random';
+import { randomHexColour, randomInRange, randomIntInRange } from '../../../modules/random';
 
 export class HighLowCommand extends InteractionCommand {
     constructor() {
@@ -41,10 +41,11 @@ export class HighLowCommand extends InteractionCommand {
         }
 
         let multiplier = 1;
-        let currentNumber = Math.floor(Math.random() * 101);
+        let currentNumber = randomIntInRange(0, 100);
         let previousNumber = currentNumber;
         let rounds = 0;
         let gameActive = true;
+        let range = 100;
 
         const embed = new EmbedBuilder()
             .setTitle('High or Low Game')
@@ -53,6 +54,7 @@ export class HighLowCommand extends InteractionCommand {
             .addFields(
                 { name: 'Multiplier', value: `${multiplier}x`, inline: true },
                 { name: 'Current Bet', value: `${Math.floor(initialBet * multiplier)} coins`, inline: true },
+                { name: 'Range', value: `0 - ${range}`, inline: true },
             )
             .setFooter({ text: `You\'re on round ${rounds + 1}.` });
 
@@ -96,30 +98,31 @@ export class HighLowCommand extends InteractionCommand {
                 return;
             }
 
-            const nextNumber = Math.floor(Math.random() * 101);
+            let guessedHigher = buttonInteraction.customId === 'higher';
+            let nextNumber = this.getWeightedNextNumber(currentNumber, range, guessedHigher);
+            let isHigher = nextNumber > currentNumber;
+            
+            if (nextNumber === currentNumber) {
+                isHigher = guessedHigher;
+            }
 
             if (buttonInteraction.customId === 'forfeit') {
                 gameActive = false;
-                await buttonInteraction.update({
-                    content: `You forfeited the game. Your inital bet was ${initialBet} and you won **${Math.floor(initialBet * multiplier)} coins for ${rounds} rounds**.`,
-                    embeds: [],
-                    components: []
-                });
+                await buttonInteraction.update({ content: `You forfeited the game. Your inital bet was ${initialBet} and you won **${Math.floor(initialBet * multiplier)} coins for ${rounds} rounds**.`, embeds: [], components: [] });
                 await Profile.updateProfile(user.id, guild.id, { coins: userProfile.coins + Math.floor(initialBet * multiplier) });
                 collector.stop();
                 return;
             }
 
-            const isHigher = nextNumber > currentNumber;
-            const guessedHigher = buttonInteraction.customId === 'higher';
             
             const resultEmbed = new EmbedBuilder()
                 .setTitle('High or Low Game')
                 .setDescription(`The next number was **${nextNumber}**.\nIt was **${isHigher ? 'higher' : 'lower'}** than **${currentNumber}**.`)
-                .setColor(isHigher === guessedHigher ? '#00FF00' : '#FF0000') // Green for correct, red for incorrect
+                .setColor(isHigher === guessedHigher ? '#00FF00' : '#FF0000')
                 .addFields(
-                    { name: 'Multiplier', value: `${multiplier}x`, inline: true },
+                    { name: 'Multiplier', value: `${multiplier.toFixed(2)}x`, inline: true },
                     { name: 'Current Bet', value: `${Math.floor(initialBet * multiplier)} coins`, inline: true },
+                    { name: 'Range', value: `0 - ${range}`, inline: true },
                 )
                 .setFooter({ text: isHigher === guessedHigher ? 'You guessed correctly!' : 'You guessed incorrectly!' });
             
@@ -131,18 +134,25 @@ export class HighLowCommand extends InteractionCommand {
             await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
             
             if (isHigher === guessedHigher) {
-                multiplier += 0.5;
+                let probability = guessedHigher ? (range - currentNumber - 1) / range : currentNumber / range;
+
+                let multiplierIncrease = (1 - probability);
+                multiplier += multiplierIncrease;
+
                 previousNumber = currentNumber;
                 currentNumber = nextNumber;
                 rounds++;
+                let minRange = Math.max(10, range - 5);
+                range = minRange;
             
                 const updatedEmbed = new EmbedBuilder()
                     .setTitle('High or Low Game')
                     .setDescription(`The previous number was **${previousNumber}**.\n\nThe current number is **${currentNumber}**. Will the next number be higher or lower?`)
                     .setColor(randomHexColour())
                     .addFields(
-                        { name: 'Multiplier', value: `${multiplier}x`, inline: true },
+                        { name: 'Multiplier', value: `${multiplier.toFixed(2)}x`, inline: true },
                         { name: 'Current Bet', value: `${Math.floor(initialBet * multiplier)} coins`, inline: true },
+                        { name: 'Range', value: `0 - ${range}`, inline: true },
                     )
                     .setFooter({ text: `You\'re on round ${rounds + 1}.` });
             
@@ -152,6 +162,8 @@ export class HighLowCommand extends InteractionCommand {
                 gameActive = false;
                 await buttonInteraction.editReply({ content: `You lost! The next number was **${nextNumber}**. You won **0 coins**.`, embeds: [], components: [] });
                 collector.stop();
+                await Profile.updateProfile(user.id, guild.id, { coins: userProfile.coins - initialBet });
+                return;
             }
         });
 
@@ -161,6 +173,32 @@ export class HighLowCommand extends InteractionCommand {
             }
         });
     }
+
+    getWeightedNextNumber(currentNumber: number, range: number, guessedHigher: boolean): number {
+
+        /*
+         * This Function exists to make games more fair for the player to make them have more fun
+        */ 
+
+
+        const bias = 0.45;
+        const favorPlayer = Math.random() < bias;
+    
+        if (guessedHigher) {
+            if (favorPlayer) {
+                return randomIntInRange(currentNumber + 1, range);
+            } else {
+                return randomIntInRange(0, range);
+            }
+        } else {
+            if (favorPlayer) {
+                return randomIntInRange(0, currentNumber - 1);
+            } else {
+                return randomIntInRange(0, range);
+            }
+        }
+    }
+    
 }
 
 export default new HighLowCommand();
