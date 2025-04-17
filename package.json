@@ -1,0 +1,23 @@
+{
+  "name": "elemental-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prestart": "npm run build",
+    "build": "npx tsc",
+    "start": "node ./build/index.js"
+  },
+  "author": "scattered.nightshade",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "discord.js": "^14.16.1",
+    "dotenv": "^16.4.5",
+    "fs": "^0.0.1-security",
+    "mongoose": "^8.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
