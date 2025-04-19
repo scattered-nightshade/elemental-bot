@@ -1,4 +1,4 @@
-import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, APIInteractionDataResolvedGuildMember, EmbedBuilder, MessageFlags } from 'discord.js';
+import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, APIInteractionDataResolvedGuildMember, EmbedBuilder, MessageFlags, ComponentType, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { InteractionCommand } from '../../../classes/command';
 import { randomHexColour } from '../../../modules/random';
 import Shop, { IShopItem } from '../../../schemas/shopModel';
@@ -74,19 +74,19 @@ export class ShopCommand extends InteractionCommand {
             }
     
             case 'show': {
-                const page = interaction.options.getInteger('page') || 1;
-                const itemsPerPage = 10;
-                const totalItems = guildProfile.items.length;
-                const totalPages = Math.ceil(totalItems / itemsPerPage);
+                let page = interaction.options.getInteger('page') || 1;
+                let itemsPerPage = 10;
+                let totalItems = guildProfile.items.length;
+                let totalPages = Math.ceil(totalItems / itemsPerPage);
     
                 if (page < 1 || page > totalPages) {
                     interaction.reply({ content: `Invalid page number. Please choose a page between 1 and ${totalPages}.`, flags: MessageFlags.Ephemeral });
                     return;
                 }
     
-                const startIndex = (page - 1) * itemsPerPage;
-                const endIndex = startIndex + itemsPerPage;
-                const itemsToShow = guildProfile.items.slice(startIndex, endIndex);
+                let startIndex = (page - 1) * itemsPerPage;
+                let endIndex = startIndex + itemsPerPage;
+                let itemsToShow = guildProfile.items.slice(startIndex, endIndex);
     
                 const embed = new EmbedBuilder()
                     .setTitle('Shop Items')
@@ -94,10 +94,76 @@ export class ShopCommand extends InteractionCommand {
                     .setFooter({ text: `Page ${page} of ${totalPages}` })
                     .setColor(randomHexColour());
     
-                interaction.reply({ embeds: [embed] });
+                const response = await interaction.reply({ embeds: [embed], components: [this.getActionRows(page, itemsPerPage, totalItems)], withResponse: true });
+
+                const resource = response.resource;
+
+                if (!resource) {
+                    console.error('Failed to get resource from interaction reply.');
+                    return;
+                }
+                
+                const message = resource.message;
+
+                if (!message) {
+                    console.error('Failed to get message from interaction reply.');
+                    return;
+                }
+
+                const collector = message.createMessageComponentCollector({ componentType: ComponentType.Button, time: 30 * 1000 });
+
+                collector.on('collect', async buttonInteraction => {
+                    if (buttonInteraction.user.id != interaction.user.id) {
+                        return;
+                    }
+
+                    if (buttonInteraction.customId === 'shopleft') {
+                        page--;
+                    }
+
+                    if (buttonInteraction.customId === 'shopright') {
+                        page++;
+                    }
+
+                    itemsPerPage = 10;
+                    totalItems = guildProfile.items.length;
+                    totalPages = Math.ceil(totalItems / itemsPerPage);
+                    startIndex = (page - 1) * itemsPerPage;
+                    endIndex = startIndex + itemsPerPage;
+                    itemsToShow = guildProfile.items.slice(startIndex, endIndex);
+
+                    const updateEmbed = new EmbedBuilder()
+                        .setTitle('Shop Items')
+                        .setDescription(itemsToShow.map(item => `${item.emoji || ''} **${item.name}** - ${item.price} coins\n${item.description || ''}`).join('\n\n') || 'No items available in the shop.')
+                        .setFooter({ text: `Page ${page} of ${totalPages}` })
+                        .setColor(randomHexColour());
+
+                    await buttonInteraction.update({ embeds: [updateEmbed], components: [this.getActionRows(page, itemsPerPage, totalItems)]});
+                });
+
                 break;
             }
         }
+    }
+
+    private getActionRows(page: number, itemsPerPage: number, totalItems: number) {
+        const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+        const row = new ActionRowBuilder<ButtonBuilder>()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('shopleft')
+                    .setLabel('◀️')
+                    .setDisabled(page <= 1)
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId('shopright')
+                    .setLabel('▶️')
+                    .setDisabled(page >= totalPages)
+                    .setStyle(ButtonStyle.Secondary),
+            );
+    
+        return row;
     }
 }
 

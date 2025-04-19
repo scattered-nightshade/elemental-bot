@@ -32,14 +32,21 @@ export class InventoryCommand extends InteractionCommand {
 
         const userProfile = await Profile.getProfileById(user.id, guild.id);
 
-        const inventory = userProfile.inventory.map(item => {
-            return `${Shop.getItemFromShop(guild.id, item.itemID)} x${item.quantity}`;
-        });
+        const inventory = await Promise.all(userProfile.inventory.map(async (item) => {
+            const shopItem = await Shop.getItemFromShop(guild.id, item.itemID);
+
+            if (!shopItem) {
+                return `Unknown item x${item.quantity}`;
+            }
+            return `${shopItem.emoji ? shopItem.emoji : ''} ${shopItem.name} x${item.quantity}`;
+        }));
+
+        console.log(inventory);
 
         const inventoryString = inventory.length > 0 ? inventory.join('\n') : 'No items in inventory.';
 
         const embed = new EmbedBuilder()
-            .setTitle('Inventory')
+            .setTitle(`${user.username}'s Inventory`)
             .setDescription(inventoryString)
             .setColor(randomHexColour())
         
