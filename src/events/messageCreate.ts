@@ -1,6 +1,7 @@
 import { Collection, Events, Message } from 'discord.js';
 import BotEvent from '../classes/event';
 import Profile, { IProfile } from '../schemas/profileModel';
+import Guild, { IGuild } from '../schemas/guildModel';
 
 class MessageCreate extends BotEvent {
     private xpCooldowns = new Collection<string, number>();
@@ -26,12 +27,14 @@ class MessageCreate extends BotEvent {
 
         const userId = message.author.id;
         const profileData = await Profile.getProfileById(userId, guild.id);
+        const guildData = await Guild.getGuildById(guild.id);
 
-
-        this.handleXP(message, profileData);
+        if (guildData.levelsEnabled){
+            this.handleXP(message, profileData, guildData);
+        }
     }
 
-    handleXP(message: Message, data: IProfile) {
+    private handleXP(message: Message, data: IProfile, guildData: IGuild) {
 
         const cooldown = this.xpCooldowns.get(message.author.id);
         const now = Date.now();
@@ -50,10 +53,32 @@ class MessageCreate extends BotEvent {
 
         if (xpToNextLevel <= data.xp) {
             data.xp -= xpToNextLevel;
-            data.level++
+            data.level++;
+
+            this.handleLevels(message, data, guildData);
         }
 
         data.save();
+    }
+
+    private async handleLevels(message: Message, data: IProfile, guildData: IGuild) {
+
+        message.reply({ content: `You have leveled up to level ${data.level}!`, allowedMentions: { repliedUser: false } });
+
+        if (!guildData?.levelAwardRoles?.length) return;
+        const member = await message.guild?.members.fetch(message.author.id);
+        if (!member) return;
+
+        for (const award of guildData.levelAwardRoles) {
+            if (data.level >= award.level && !member.roles.cache.has(award.roleID)) {
+                try {
+                    await member.roles.add(award.roleID, `Level up to ${data.level}`);
+                } 
+                catch (err) {
+                    console.error(err)    
+                }
+            }
+        }
     }
 }
 
