@@ -1,4 +1,4 @@
-import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, APIInteractionDataResolvedGuildMember, EmbedBuilder, PermissionsBitField, MessageFlags } from 'discord.js';
+import { CacheType, ChatInputCommandInteraction, SlashCommandBuilder, APIInteractionDataResolvedGuildMember, EmbedBuilder, PermissionsBitField, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { InteractionCommand } from '../../../classes/command';
 import Profile from '../../../schemas/profileModel';
 import { randomHexColour } from '../../../modules/random';
@@ -12,7 +12,7 @@ export class ModifyXPCommand extends InteractionCommand {
             .setName(this.name)
             .setDescription(this.description)
             .setNSFW(this.nsfw)
-            .setDefaultMemberPermissions(PermissionsBitField.All)
+            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
             .addStringOption(option =>
                 option.setName('option')
                 .setDescription('Modification option')
