@@ -20,7 +20,7 @@ export interface IInventoryItem {
 }
 
 const profileSchema = new Schema({
-    userID: { type: Schema.Types.String, required: true, unique: true },
+    userID: { type: Schema.Types.String, required: true },
     guildID: { type: Schema.Types.String, required: true },
     coins: { type: Schema.Types.Number, default: 0 },
     xp: { type: Schema.Types.Number, default: 0 },
