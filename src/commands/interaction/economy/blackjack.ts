@@ -69,7 +69,7 @@ export class BlackjackCommand extends InteractionCommand {
             .setColor(randomHexColour())
             .addFields(
                 { name: 'Dealer\'s hand', value: `${dealerHand[0]}, ??`, inline: true },
-                { name: 'Dealer\'s Total', value: `${parseInt(dealerHand[0].slice(0, -1))} + ??`, inline: true },
+                { name: 'Dealer\'s Total', value: `${this.calculateHand([dealerHand[0]])} + ??`, inline: true },
                 { name: '\u200b', value: '\u200b' },
                 { name: 'Your Hand', value: this.formatHand(playerHands[activeHandIndex]), inline: true },
                 { name: 'Your Total', value: `${this.calculateHand(playerHands[activeHandIndex])}`, inline: true },
@@ -332,6 +332,7 @@ export class BlackjackCommand extends InteractionCommand {
     }
 
     private getActionRow(playerHands: string[][], playerHandIndex: number, bet: number, coins: number, split: boolean): ActionRowBuilder<ButtonBuilder> {
+        const cards = playerHands[playerHandIndex].map(card => card.slice(0, -1));
         const row = new ActionRowBuilder<ButtonBuilder>()
             .addComponents(
                 new ButtonBuilder()
@@ -342,31 +343,23 @@ export class BlackjackCommand extends InteractionCommand {
                     .setCustomId('stand')
                     .setLabel('Stand')
                     .setStyle(ButtonStyle.Primary),
-                    
-            );
-
-        if (playerHands[playerHandIndex].length === 2) {
-            
-            const cards = playerHands[playerHandIndex].map(card => card.slice(0, -1));
-
-            row.addComponents(
                 new ButtonBuilder()
                     .setCustomId('doubledown')
                     .setLabel('Double Down')
-                    .setDisabled(coins < bet * 2)
+                    .setDisabled(coins < bet * 2 || playerHands[playerHandIndex].length !== 2)
                     .setStyle(ButtonStyle.Primary),
                 new ButtonBuilder()
                     .setCustomId('split')
                     .setLabel('Split')
-                    .setDisabled(cards[0] !== cards[1] || coins < bet * (playerHands.length + 1))
+                    .setDisabled(cards[0] !== cards[1] || coins < bet * (playerHands.length + 1) || playerHands[playerHandIndex].length !== 2)
                     .setStyle(ButtonStyle.Primary),
                 new ButtonBuilder()
                     .setCustomId('surrender')
                     .setLabel('Surrender')
-                    .setDisabled(playerHands.length > 1)
+                    .setDisabled(playerHands.length > 1 || playerHands[playerHandIndex].length !== 2)
                     .setStyle(ButtonStyle.Danger),
+                    
             );
-        }
 
         return row;
     }
