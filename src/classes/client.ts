@@ -1,18 +1,17 @@
-import { Client, Collection, GatewayIntentBits } from 'discord.js';
+import { Client, Collection, GatewayIntentBits, SlashCommandBuilder } from 'discord.js';
 import BotHandler from './handler';
 import { readdirSync } from 'fs';
 import { join, resolve, basename, extname } from 'path';
 import { runAtMultipleSpecificTimes } from '../modules/timedEvents';
 
-// Custom client class that extends the Discord.js Client class
 export class BotClient extends Client {
     interactionCommands: Collection<string, any>;
     interactionButtons: Collection<string, any>;
     interactionSelectMenus: Collection<string, any>;
     messageCommands: Collection<string, any>;
     aliases: Collection<string, any>;
-    categories: string[];
-    data: any[];
+    category: Collection<string, string[]>;
+    data: SlashCommandBuilder[];
 
     cooldowns: Collection<string, Collection<string, number>>;
 
@@ -34,7 +33,7 @@ export class BotClient extends Client {
         this.interactionSelectMenus = new Collection<string, any>();
         this.aliases = new Collection<string, any>();
 
-        this.categories = [];
+        this.category = new Collection<string, string[]>();
 
         this.data = [];
 
@@ -61,11 +60,19 @@ export class BotClient extends Client {
     }
 
     private loadCommandCategories() {
-        const categoryFiles = readdirSync(resolve('./build/commands/interaction'), { withFileTypes: true })
+        const categoriesPath = resolve('./build/commands/interaction');
+        const categoryFiles = readdirSync(categoriesPath, { withFileTypes: true })
             .filter((dirent) => dirent.isDirectory())
             .map((dirent) => dirent.name);
 
-        this.categories.push(...categoryFiles);
+        categoryFiles.forEach(category => {
+            const commandsPath = join(categoriesPath, category);
+            const commandFiles = readdirSync(commandsPath)
+                .filter(file => file.endsWith('.js'))
+                .map(file => basename(file, extname(file)));
+
+            this.category.set(category, commandFiles);
+        });
     }
 
     private async loadHandlers() {
